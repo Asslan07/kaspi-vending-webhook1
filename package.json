@@ -1,11 +1,17 @@
 {
-  "name": "kaspi-webhook",
+  "name": "kaspi-vending-webhook",
   "version": "1.0.0",
+  "description": "Kaspi Pay webhook for vending",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.x"
+  },
   "dependencies": {
-    "express": "^4.18.2",
-    "node-fetch": "^2.7.0",
-    "crypto": "builtin"
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2"
   }
 }
