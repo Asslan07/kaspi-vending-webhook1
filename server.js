@@ -1,53 +1,59 @@
-const express = require('express');
-const crypto = require('crypto');
-const fetch = require('node-fetch');
+import express from 'express';
 const app = express();
 app.use(express.json());
 
-const MERCHANT_ID = 'ТВОЙ_MERCHANT_ID';  // вставь
-const SECRET = 'ТВОЙ_SECRET_KEY';        // вставь
-const ESP_IP = '192.168.1.100:80';       // IP твоей ESP32 в локалке
+// ─────── НАСТРОЙКИ (замени на свои) ──────
+const MERCHANT_ID = 'ТВОЙ_MERCHANT_ID';
+const SECRET = 'ТВОЙ_SECRET_KEY';
+const ESP_URL = 'http://192.168.1.100/paid'; // или ngrok если не в одной сети
+// ─────────────────────────────────────────
 
-// Создание заказа (эндпоинт для ESP32)
 app.get('/create/:amount/:item', async (req, res) => {
-  const amount = req.params.amount;
+  const amount = Number(req.params.amount);
   const item = req.params.item;
-  const orderId = Date.now().toString() + '_' + item;
+  const orderId = Date.now() + '_' + item;
 
-  const orderData = {
+  const signString = MERCHANT_ID + amount + orderId;
+  const signature = require('crypto')
+    .createHmac('sha256', SECRET)
+    .update(signString)
+    .digest('hex');
+
+  const body = {
     merchantId: MERCHANT_ID,
-    amount: Number(amount),
+    amount,
     description: `Напиток ${item}`,
     orderId,
-    callbackUrl: `https://${req.get('host')}/webhook?item=${item}`  // авто-URL Render
+    callbackUrl: `https://${req.get('host')}/webhook?slot=${item}`
   };
 
-  const signString = `${MERCHANT_ID}${amount}${orderId}`;
-  const signature = crypto.createHmac('sha256', SECRET).update(signString).digest('hex');
-
   try {
-    const response = await fetch('https://api.kaspi.kz/pay/v2/orders', {
+    const kaspiRes = await fetch('https://api.kaspi.kz/pay/v2/orders', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Auth-Token': signature },
-      body: JSON.stringify(orderData)
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Auth-Token': signature
+      },
+      body: JSON.stringify(body)
     });
-    const json = await response.json();
-    res.json({ qr: json.qrCode, paymentUrl: json.paymentUrl, orderId });
+    const data = await kaspiRes.json();
+    res.json({ qr: data.qrCode, paymentUrl: data.paymentUrl });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// Webhook от Kaspi
-app.post('/webhook', (req, res) => {
-  console.log('Webhook received:', req.body);  // логи в Render dashboard
-  const item = req.query.item;
+app.post('/webhook', async (req, res) => {
+  console.log('Webhook:', req.body);
   if (req.body.status === 'PAID') {
-    // Пингуем ESP32 (если она в одной сети; иначе используй ngrok на ESP)
-    fetch(`http://${ESP_IP}/paid?slot=${item}`).catch(e => console.log('ESP error:', e));
+    const slot = req.query.slot || '1';
+    try {
+      await fetch(`${ESP_URL}?slot=${slot}`);
+      console.log('Напиток выдан, слот:', slot);
+    } catch (e) { console.log('ESP не отвечает'); }
   }
   res.sendStatus(200);
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Server on port ${port}`));
+app.listen(port, () => console.log('Сервер живой на порту', port));
